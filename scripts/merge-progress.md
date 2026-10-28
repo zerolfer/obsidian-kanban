@@ -52,4 +52,14 @@ Las 19 PRs de merge-all-prs.ps1 están integradas. Se ha conservado el historial
 - El lint general no pasa: el checkout Windows contiene CRLF frente a la regla LF y 13 ficheros ajenos a esta integración quedan fuera de tsconfig.json. Estos problemas de configuración se mantienen fuera del alcance de la integración.
 - Pendiente de validación manual en Obsidian: arrastre real entre ventanas/tableros, móvil, complementos de plantillas y aspecto visual. Las pruebas de Node ejecutan la lógica real con dobles de la API de Obsidian; no sustituyen esa validación.
 
-Todo queda local en fork/community. No se ha publicado ni instalado en una bóveda de Obsidian.
+Todo queda local en fork/community. El plugin compilado se ha instalado únicamente en test-vault para las comprobaciones; la bóveda habitual no se ha modificado.
+
+## Seguimiento: filtros sin Dataview (28 de octubre de 2026)
+
+- El usuario confirmó que las pruebas manuales funcionaban salvo los tres escenarios de filtro, búsqueda combinada y tabla.
+- Causa reproducida: extractInlineFields solo leía campos entre corchetes con Dataview activado. Sin él, [assignee:: Ana] producía una lista vacía y el selector no ofrecía campos.
+- Corregido el lector para reconocer campos inline directamente, conservando la integración opcional con Dataview y la activación de los campos especiales de Tasks.
+- En la verificación real se encontró además una mezcla visual de tarjetas al cambiar Ana por Luis en tabla: TanStack asignaba identificadores por posición. Las filas ahora usan item.id, de modo que el filtro no reutiliza el editor ni el contenido de otra tarjeta.
+- Añadidas cinco pruebas desde Markdown real y la configuración real de TanStack. Los casos fallaron antes de cada corrección y pasan después. Suite completa: 32/32; typecheck y build correctos; lint de los dos archivos modificados correcto con la regla de finales de línea desactivada por el checkout Windows.
+- Instalado el build en test-vault con copia previa de los archivos del plugin. Se conservan las tarjetas y data.json del usuario.
+- Verificado en Obsidian 1.14.5 sin Dataview: filtro Ana, combinación con búsqueda (presupuesto → cero tarjetas; propuesta → Ana), tabla filtrada, cambio Ana → Luis sin contenido residual y edición de la fila visible de Luis sin modificar la tarjeta oculta de Ana. El marcador temporal de edición se retiró y se comprobó el Markdown guardado.

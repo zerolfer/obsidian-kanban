@@ -4,7 +4,7 @@
   "description": "This is a sample plugin for Obsidian (https://obsidian.md)",
   "main": "main.js",
   "scripts": {
-    "test:integration": "node --test scripts/merge-regressions.cjs scripts/transfer-regressions.cjs",
+    "test:integration": "node --test scripts/merge-regressions.cjs scripts/transfer-regressions.cjs scripts/filter-regressions.cjs",
     "typecheck": "tsc --noemit",
     "dev": "node esbuild.config.mjs",
     "build": "node esbuild.config.mjs production",

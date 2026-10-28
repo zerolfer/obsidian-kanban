@@ -417,23 +417,21 @@ export function extractInlineFields(
   line: string,
   includeTaskFields: boolean = false
 ): InlineField[] | null {
-  const dv = getDataviewPlugin();
   const tasks = getTasksPlugin();
 
   let fields: InlineField[] = [];
-  if (dv) {
-    for (const wrapper of Object.keys(INLINE_FIELD_WRAPPERS)) {
-      let foundIndex = line.indexOf(wrapper);
-      while (foundIndex >= 0) {
-        const parsedField = findSpecificInlineField(line, foundIndex);
-        if (!parsedField) {
-          foundIndex = line.indexOf(wrapper, foundIndex + 1);
-          continue;
-        }
-
-        fields.push(parsedField);
-        foundIndex = line.indexOf(wrapper, parsedField.end);
+  // Kanban uses inline fields for filtering even when Dataview is not installed.
+  for (const wrapper of Object.keys(INLINE_FIELD_WRAPPERS)) {
+    let foundIndex = line.indexOf(wrapper);
+    while (foundIndex >= 0) {
+      const parsedField = findSpecificInlineField(line, foundIndex);
+      if (!parsedField) {
+        foundIndex = line.indexOf(wrapper, foundIndex + 1);
+        continue;
       }
+
+      fields.push(parsedField);
+      foundIndex = line.indexOf(wrapper, parsedField.end);
     }
   }
 

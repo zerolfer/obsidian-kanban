@@ -95,6 +95,7 @@ export function TableView({
   const { data, columns, state, setSorting } = useTableColumns(boardData, stateManager);
   const table = useReactTable({
     data,
+    getRowId: (row) => row.item.id,
     columns,
     state,
     globalFilterFn: fuzzyAnyFilter,
