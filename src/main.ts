@@ -15,6 +15,7 @@ import { createApp } from './DragDropApp';
 import { KanbanView, kanbanIcon, kanbanViewType } from './KanbanView';
 import { KanbanSettings, KanbanSettingsTab } from './Settings';
 import { StateManager } from './StateManager';
+import { KanbanUndoManager } from './UndoManager';
 import { DateSuggest, TimeSuggest } from './components/Editor/suggest';
 import { getParentWindow } from './dnd/util/getWindow';
 import { hasFrontmatterKey } from './helpers';
@@ -53,6 +54,7 @@ export default class KanbanPlugin extends Plugin {
   kanbanFileModes: Record<string, string> = {};
   kanbanMarkdownModes: Record<string, ReturnType<MarkdownView['getMode']>> = {};
   stateManagers: Map<TFile, StateManager> = new Map();
+  undoManager = new KanbanUndoManager(this);
 
   windowRegistry: Map<Window, WindowRegistry> = new Map();
 
@@ -147,6 +149,7 @@ export default class KanbanPlugin extends Plugin {
 
     this.registerDomEvent(window, 'keydown', this.handleShift);
     this.registerDomEvent(window, 'keyup', this.handleShift);
+    this.registerDomEvent(window, 'keydown', this.handleUndoHotkey, true);
 
     this.addRibbonIcon(kanbanIcon, t('Create new board'), () => {
       this.newKanban();
@@ -155,6 +158,30 @@ export default class KanbanPlugin extends Plugin {
 
   handleShift = (e: KeyboardEvent) => {
     this.isShiftPressed = e.shiftKey;
+  };
+
+  handleUndoHotkey = (e: KeyboardEvent) => {
+    const isUndo =
+      (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z';
+    const isRedo =
+      ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && e.key.toLowerCase() === 'z') ||
+      (e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'y');
+
+    if ((!isUndo && !isRedo) || e.defaultPrevented) return;
+
+    const view = this.app.workspace.getActiveViewOfType(KanbanView);
+    if (!view || view.activeEditor) return;
+    if (isUndo && !this.undoManager.canUndo()) return;
+    if (isRedo && !this.undoManager.canRedo()) return;
+
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (isUndo) {
+      this.undoManager.undoLast();
+    } else {
+      this.undoManager.redoLast();
+    }
   };
 
   getKanbanViews(win: Window) {
@@ -242,7 +269,8 @@ export default class KanbanPlugin extends Plugin {
           view,
           data,
           () => this.stateManagers.delete(file),
-          () => this.settings
+          () => this.settings,
+          this.undoManager
         )
       );
     }
@@ -799,6 +827,28 @@ export default class KanbanPlugin extends Plugin {
         if (checking) return true;
 
         view.getBoardSettings();
+      },
+    });
+
+    this.addCommand({
+      id: 'undo-last-kanban-action',
+      name: t('Undo last Kanban action'),
+      checkCallback: (checking) => {
+        if (!this.undoManager.canUndo()) return false;
+        if (checking) return true;
+
+        this.undoManager.undoLast();
+      },
+    });
+
+    this.addCommand({
+      id: 'redo-last-kanban-action',
+      name: t('Redo last Kanban action'),
+      checkCallback: (checking) => {
+        if (!this.undoManager.canRedo()) return false;
+        if (checking) return true;
+
+        this.undoManager.redoLast();
       },
     });
   }

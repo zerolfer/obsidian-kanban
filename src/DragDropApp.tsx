@@ -19,6 +19,7 @@ import {
   updateEntity,
 } from './dnd/util/data';
 import { getBoardModifiers } from './helpers/boardModifiers';
+import { t } from './lang/helpers';
 import KanbanPlugin from './main';
 import { frontmatterKey } from './parsers/common';
 import {
@@ -111,7 +112,9 @@ export function DragDropApp({ win, plugin }: { win: Window; plugin: KanbanPlugin
           dropPath.push(0);
         }
 
-        return stateManager.setState((board) => {
+        const label = dragEntityData.type === DataTypes.Lane ? t('Move list') : t('Move card');
+
+        return plugin.undoManager.run(label, stateManager, (board) => {
           const entity = getEntityFromPath(board, dragPath);
           const newBoard: Board = moveEntity(
             board,
@@ -196,6 +199,9 @@ export function DragDropApp({ win, plugin }: { win: Window; plugin: KanbanPlugin
 
       const isDetached = plugin.stateManagers.get(sourceStateManager.file) !== sourceStateManager;
       if (isDetached) plugin.dragSource = null;
+      const label = dragEntityData.type === DataTypes.Lane ? t('Move list') : t('Move card');
+      const sourceBefore = plugin.undoManager.capture(sourceStateManager);
+      const destinationBefore = plugin.undoManager.capture(destinationStateManager);
 
       sourceStateManager.setState((sourceBoard) => {
         const entity = getEntityFromPath(sourceBoard, dragPath);
@@ -271,6 +277,7 @@ export function DragDropApp({ win, plugin }: { win: Window; plugin: KanbanPlugin
         const { file, parser, state } = sourceStateManager;
         plugin.app.vault.modify(file, parser.boardToMd(state));
       }
+      plugin.undoManager.record(label, [sourceBefore, destinationBefore]);
     },
     [views]
   );
