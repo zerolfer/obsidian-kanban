@@ -398,7 +398,7 @@ export default class KanbanPlugin extends Plugin {
 
     const state = leaf.view.getState();
 
-    this.rememberMarkdownMode(leaf, state.file);
+    this.rememberMarkdownMode(leaf, typeof state.file === 'string' ? state.file : undefined);
 
     await leaf.setViewState({
       type: kanbanViewType,
@@ -430,9 +430,7 @@ export default class KanbanPlugin extends Plugin {
       if (lane) {
         lane.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
       } else {
-        const firstLane = view.contentEl.querySelector<HTMLElement>(
-          '.kanban-plugin__lane-wrapper'
-        );
+        const firstLane = view.contentEl.querySelector<HTMLElement>('.kanban-plugin__lane-wrapper');
         firstLane?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' });
       }
     });
@@ -918,9 +916,9 @@ export default class KanbanPlugin extends Plugin {
             const currentView = this.view;
             const subpath = (state as ViewState & { eState?: { subpath?: string } }).eState
               ?.subpath;
-            const line = rest.find(
-              (value) => typeof value?.line === 'number'
-            )?.line as number | undefined;
+            const line = rest.find((value) => typeof value?.line === 'number')?.line as
+              | number
+              | undefined;
             const leafKey =
               this.id ||
               (currentView instanceof KanbanView ? currentView.file?.path : state.state?.file);
@@ -968,7 +966,7 @@ export default class KanbanPlugin extends Plugin {
               self._loaded &&
               // If we have a markdown file
               nextState.type === 'markdown' &&
-              nextState.state?.file &&
+              typeof nextState.state?.file === 'string' &&
               // And the current mode of the file is not set to markdown
               self.kanbanFileModes[this.id || nextState.state.file] !== 'markdown'
             ) {

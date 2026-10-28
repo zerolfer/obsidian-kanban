@@ -1,7 +1,7 @@
 import animateScrollTo from 'animated-scroll-to';
 import classcat from 'classcat';
 import update from 'immutability-helper';
-import { TFile, TFolder } from 'obsidian';
+import { Notice, TFile, TFolder } from 'obsidian';
 import { Fragment, memo, useCallback, useContext, useMemo, useRef, useState } from 'preact/compat';
 import {
   DraggableProps,
@@ -13,6 +13,7 @@ import { ScrollContainer } from 'src/dnd/components/ScrollContainer';
 import { SortPlaceholder } from 'src/dnd/components/SortPlaceholder';
 import { Sortable, StaticSortable } from 'src/dnd/components/Sortable';
 import { useDragHandle } from 'src/dnd/managers/DragManager';
+import { t } from 'src/lang/helpers';
 import { frontmatterKey } from 'src/parsers/common';
 import { getTaskStatusDone } from 'src/parsers/helpers/inlineMetadata';
 
@@ -119,45 +120,49 @@ function DraggableLaneRaw({
     [boardModifiers, path, lane, shouldPrepend]
   );
 
+  const isCreatingNote = useRef(false);
   const createAutoNote = useCallback(async () => {
-    const currentCounter =
-      (stateManager.state.data.settings?.['auto-create-note-counter'] as number) ?? 0;
-    const nextCounter = currentCounter + 1;
+    if (isCreatingNote.current) return;
+    isCreatingNote.current = true;
+    try {
+      const currentCounter = stateManager.state.data.settings?.['auto-create-note-counter'] ?? 0;
+      const nextCounter = currentCounter + 1;
+      const nameFormat =
+        stateManager.getSetting('auto-create-note-name-format') || '{{board}}-{{id}}';
+      const noteName = resolveNoteNameFormat(nameFormat, stateManager, nextCounter);
+      const getNoteFolder = (path?: string | null) => {
+        const file = path ? stateManager.app.vault.getAbstractFileByPath(path) : null;
+        return file instanceof TFolder ? file : null;
+      };
+      const targetFolder =
+        getNoteFolder(stateManager.getSetting('new-note-folder')) ??
+        getNoteFolder(stateManager.getGlobalSetting('new-note-folder')) ??
+        stateManager.app.fileManager.getNewFileParent(stateManager.file.path);
+      const newFile = (await (stateManager.app.fileManager as any).createNewMarkdownFile(
+        targetFolder,
+        noteName
+      )) as TFile;
 
-    const nameFormat =
-      (stateManager.getSetting('auto-create-note-name-format') as string) || '{{board}}-{{id}}';
-    const noteName = resolveNoteNameFormat(nameFormat, stateManager, nextCounter);
+      stateManager.setState((board) =>
+        update(board, {
+          data: { settings: { 'auto-create-note-counter': { $set: nextCounter } } },
+        })
+      );
+      const wikilink = stateManager.app.fileManager.generateMarkdownLink(
+        newFile,
+        stateManager.file.path
+      );
+      addItems([stateManager.getNewItem(wikilink, ' ')]);
 
-    const newNoteFolder = stateManager.getSetting('new-note-folder');
-    const newNoteTemplatePath = stateManager.getSetting('new-note-template');
-
-    const targetFolder = newNoteFolder
-      ? (stateManager.app.vault.getAbstractFileByPath(newNoteFolder as string) as TFolder)
-      : stateManager.app.fileManager.getNewFileParent(stateManager.file.path);
-
-    stateManager.setState((board) =>
-      update(board, {
-        data: { settings: { 'auto-create-note-counter': { $set: nextCounter } } },
-      })
-    );
-
-    const newFile = (await (stateManager.app.fileManager as any).createNewMarkdownFile(
-      targetFolder,
-      noteName
-    )) as TFile;
-
-    const newLeaf = stateManager.app.workspace.splitActiveLeaf();
-    await newLeaf.openFile(newFile);
-    stateManager.app.workspace.setActiveLeaf(newLeaf, false, true);
-
-    await applyTemplate(stateManager, newNoteTemplatePath as string | undefined);
-
-    const wikilink = stateManager.app.fileManager.generateMarkdownLink(
-      newFile,
-      stateManager.file.path
-    );
-
-    addItems([stateManager.getNewItem(wikilink, ' ')]);
+      const newLeaf = stateManager.app.workspace.splitActiveLeaf();
+      await newLeaf.openFile(newFile);
+      stateManager.app.workspace.setActiveLeaf(newLeaf, false, true);
+      await applyTemplate(stateManager, stateManager.getSetting('new-note-template'));
+    } catch (error) {
+      new Notice(t('The note could not be created or opened. Check the note folder and template.'));
+    } finally {
+      isCreatingNote.current = false;
+    }
   }, [stateManager, addItems]);
 
   const DroppableComponent = isStatic ? StaticDroppable : Droppable;

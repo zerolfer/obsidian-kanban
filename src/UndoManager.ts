@@ -1,10 +1,10 @@
 import { Notice, TFile, setIcon } from 'obsidian';
 
-import type KanbanPlugin from './main';
 import type { KanbanViewSettings } from './Settings';
 import type { StateManager } from './StateManager';
 import { Board } from './components/types';
 import { t } from './lang/helpers';
+import type KanbanPlugin from './main';
 
 interface ViewStateSnapshot {
   state: KanbanViewSettings;
@@ -12,10 +12,10 @@ interface ViewStateSnapshot {
 
 interface UndoFileState {
   file: TFile;
-  before: Board;
+  before?: Board;
   beforeMd: string;
   beforeViewStates: ViewStateSnapshot[];
-  after: Board;
+  after?: Board;
   afterMd: string;
   afterViewStates: ViewStateSnapshot[];
 }
@@ -25,6 +25,13 @@ interface PendingFileState {
   before: Board;
   beforeMd: string;
   beforeViewStates: ViewStateSnapshot[];
+}
+
+interface MarkdownFileChange {
+  file: TFile;
+  beforeMd: string;
+  afterMd: string;
+  undoEnabled?: boolean;
 }
 
 interface UndoEntry {
@@ -53,6 +60,7 @@ export class KanbanUndoManager {
   private maxEntries = 50;
   private currentNotice: Notice | null = null;
   private currentNoticeTimer: number | null = null;
+  private isRestoring = false;
 
   constructor(private plugin: KanbanPlugin) {}
 
@@ -88,14 +96,24 @@ export class KanbanUndoManager {
     this.record(label, [before]);
   }
 
-  record(label: string, beforeStates: PendingFileState[]) {
+  record(
+    label: string,
+    beforeStates: PendingFileState[],
+    markdownChanges: MarkdownFileChange[] = []
+  ) {
+    // A move must be restored as a whole, including when one board opts out.
+    if (
+      beforeStates.some(({ manager }) => manager.getSetting('enable-undo') === false) ||
+      markdownChanges.some((change) => change.undoEnabled === false)
+    )
+      return;
+
     const files: UndoFileState[] = [];
 
     for (const beforeState of beforeStates) {
       const { manager } = beforeState;
       const afterMd = manager.parser.boardToMd(manager.state);
 
-      if (manager.getSetting('enable-undo') === false) continue;
       if (beforeState.beforeMd === afterMd) continue;
 
       files.push({
@@ -108,6 +126,15 @@ export class KanbanUndoManager {
         afterViewStates: Array.from(manager.viewSet).map((view) => ({
           state: cloneViewState(view.viewSettings),
         })),
+      });
+    }
+
+    for (const change of markdownChanges) {
+      if (change.beforeMd === change.afterMd) continue;
+      files.push({
+        ...change,
+        beforeViewStates: [],
+        afterViewStates: [],
       });
     }
 
@@ -126,53 +153,88 @@ export class KanbanUndoManager {
       this.stack.shift();
     }
 
-    if (files.some((file) => this.plugin.getStateManager(file.file)?.getSetting('show-undo-notice') !== false)) {
+    if (
+      files.some(
+        (file) =>
+          this.plugin.getStateManager(file.file)?.getSetting('show-undo-notice') ??
+          this.plugin.settings['show-undo-notice'] ??
+          false
+      )
+    ) {
       this.showUndoNotice(entry);
     }
   }
 
   async undoLast() {
-    const entry = this.stack[this.stack.length - 1];
+    if (this.isRestoring) return;
+    this.isRestoring = true;
+    try {
+      const entry = this.stack[this.stack.length - 1];
 
-    if (!entry) {
-      new Notice(t('Nothing to undo'));
-      return;
-    }
+      if (!entry) {
+        new Notice(t('Nothing to undo'));
+        return;
+      }
 
-    if (!(await this.canApply(entry, 'before'))) {
+      if (!(await this.canApply(entry, 'before'))) {
+        new Notice(t('Unable to undo because the board has changed'));
+        return;
+      }
+
+      await this.restoreEntry(entry, 'before');
+
+      this.stack.pop();
+      this.redoStack.push(entry);
+      this.dismissCurrentNotice();
+    } catch (error) {
       new Notice(t('Unable to undo because the board has changed'));
-      return;
+    } finally {
+      this.isRestoring = false;
     }
-
-    for (const fileState of entry.files) {
-      await this.restore(fileState, 'before');
-    }
-
-    this.stack.pop();
-    this.redoStack.push(entry);
-    this.dismissCurrentNotice();
   }
 
   async redoLast() {
-    const entry = this.redoStack[this.redoStack.length - 1];
+    if (this.isRestoring) return;
+    this.isRestoring = true;
+    try {
+      const entry = this.redoStack[this.redoStack.length - 1];
 
-    if (!entry) {
-      new Notice(t('Nothing to redo'));
-      return;
-    }
+      if (!entry) {
+        new Notice(t('Nothing to redo'));
+        return;
+      }
 
-    if (!(await this.canApply(entry, 'after'))) {
+      if (!(await this.canApply(entry, 'after'))) {
+        new Notice(t('Unable to redo because the board has changed'));
+        return;
+      }
+
+      await this.restoreEntry(entry, 'after');
+
+      this.redoStack.pop();
+      this.stack.push(entry);
+      this.dismissCurrentNotice();
+    } catch (error) {
       new Notice(t('Unable to redo because the board has changed'));
-      return;
+    } finally {
+      this.isRestoring = false;
     }
+  }
 
-    for (const fileState of entry.files) {
-      await this.restore(fileState, 'after');
+  private async restoreEntry(entry: UndoEntry, target: RestoreTarget) {
+    const applied: UndoFileState[] = [];
+    try {
+      for (const fileState of entry.files) {
+        await this.restore(fileState, target);
+        applied.push(fileState);
+      }
+    } catch (error) {
+      // Keep the move together if writing one of its closed boards fails.
+      for (const fileState of applied.reverse()) {
+        await this.restore(fileState, target === 'before' ? 'after' : 'before');
+      }
+      throw error;
     }
-
-    this.redoStack.pop();
-    this.stack.push(entry);
-    this.dismissCurrentNotice();
   }
 
   private async canApply(entry: UndoEntry, target: RestoreTarget) {
@@ -195,15 +257,14 @@ export class KanbanUndoManager {
     const manager = this.plugin.getStateManager(fileState.file);
     const board = target === 'before' ? fileState.before : fileState.after;
     const md = target === 'before' ? fileState.beforeMd : fileState.afterMd;
-    const viewStates =
-      target === 'before' ? fileState.beforeViewStates : fileState.afterViewStates;
+    const viewStates = target === 'before' ? fileState.beforeViewStates : fileState.afterViewStates;
 
     if (!manager) {
       await this.plugin.app.vault.modify(fileState.file, md);
       return;
     }
 
-    manager.setState(board);
+    manager.setState(board ?? manager.getParsedBoard(md));
 
     Array.from(manager.viewSet).forEach((view, index) => {
       const snapshot = viewStates[index];
@@ -220,7 +281,6 @@ export class KanbanUndoManager {
     const chip = activeDocument.createElement('div');
     const message = activeDocument.createElement('span');
     const button = activeDocument.createElement('button');
-    let notice: Notice;
 
     chip.addClass('kanban-plugin__undo-notice-chip');
     message.textContent = entry.label;
@@ -235,7 +295,7 @@ export class KanbanUndoManager {
 
     chip.append(message, button);
     fragment.append(chip);
-    notice = new Notice(fragment, 0);
+    const notice = new Notice(fragment, 0);
     notice.noticeEl.addClass('kanban-plugin__undo-notice');
     this.currentNotice = notice;
 

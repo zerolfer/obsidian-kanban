@@ -1,5 +1,5 @@
 import update from 'immutability-helper';
-import { App, TFile } from 'obsidian';
+import { App, Notice, TFile } from 'obsidian';
 import { StateManager } from 'src/StateManager';
 import { Path } from 'src/dnd/types';
 import { removeEntity } from 'src/dnd/util/data';
@@ -53,7 +53,7 @@ function insertIntoMarkdown(content: string, laneIdx: number, line: string) {
 // Move an item from the current board to the top of a lane on another board.
 // An open target board is updated through its StateManager; a closed one
 // through its file.
-export function sendItemToBoard(
+export async function sendItemToBoard(
   sourceSM: StateManager,
   sourcePath: Path,
   item: Item,
@@ -63,23 +63,65 @@ export function sendItemToBoard(
   const plugin = sourceSM.getAView().plugin;
   const targetSM = plugin.stateManagers.get(targetFile);
   const { titleRaw, checkChar } = item.data;
+  if (targetSM === sourceSM) return false;
+  if (sourceSM.state.children[sourcePath[0]]?.children[sourcePath[1]]?.id !== item.id) return false;
 
-  if (targetSM) {
-    targetSM.setState((board) => {
-      if (!board.children[laneIdx]) return board;
-      return update(board, {
-        children: {
-          [laneIdx]: { children: { $unshift: [targetSM.getNewItem(titleRaw, checkChar)] } },
-        },
+  try {
+    let targetBefore: ReturnType<typeof plugin.undoManager.capture>;
+    let markdownChange: { file: TFile; beforeMd: string; afterMd: string; undoEnabled: boolean };
+    if (targetSM) {
+      if (!targetSM.state.children[laneIdx]) throw new Error('Destination list no longer exists');
+      targetBefore = plugin.undoManager.capture(targetSM);
+      const newItem = targetSM.getNewItem(titleRaw, checkChar);
+      targetSM.setState((board) =>
+        update(board, {
+          children: { [laneIdx]: { children: { $unshift: [newItem] } } },
+        })
+      );
+      if (!targetSM.state.children[laneIdx]?.children.includes(newItem)) {
+        throw new Error('Could not insert the card');
+      }
+    } else {
+      const line = `- [${checkChar}] ${indentNewLines(titleRaw)}`;
+      // Vault.process serializes read-modify-write operations on this file.
+      await plugin.app.vault.process(targetFile, (content) => {
+        const next = insertIntoMarkdown(content, laneIdx, line);
+        if (next === null) throw new Error('Destination list no longer exists');
+        const footer = content.match(/%% kanban:settings\s*```\s*([\s\S]*?)```/);
+        const localSettings = footer ? JSON.parse(footer[1]) : {};
+        const frontmatter = plugin.app.metadataCache.getFileCache(targetFile)?.frontmatter;
+        markdownChange = {
+          file: targetFile,
+          beforeMd: content,
+          afterMd: next,
+          undoEnabled:
+            (frontmatter?.['enable-undo'] ??
+              localSettings['enable-undo'] ??
+              plugin.settings['enable-undo']) !== false,
+        };
+        return next;
       });
-    });
-  } else {
-    const line = `- [${checkChar}] ${indentNewLines(titleRaw)}`;
-    plugin.app.vault.read(targetFile).then((content) => {
-      const next = insertIntoMarkdown(content, laneIdx, line);
-      if (next !== null) plugin.app.vault.modify(targetFile, next);
-    });
-  }
+    }
 
-  sourceSM.setState((board) => removeEntity(board, sourcePath));
+    // The source may have changed while a closed destination was being written.
+    const sourceBefore = plugin.undoManager.capture(sourceSM);
+    sourceSM.setState((board) => {
+      for (let lane = 0; lane < board.children.length; lane++) {
+        const index = board.children[lane].children.findIndex((card) => card.id === item.id);
+        if (index < 0) continue;
+        const currentPath: Path = [lane, index];
+        return removeEntity(board, currentPath);
+      }
+      return board;
+    });
+    plugin.undoManager.record(
+      t('Move card'),
+      targetBefore ? [sourceBefore, targetBefore] : [sourceBefore],
+      markdownChange ? [markdownChange] : []
+    );
+    return true;
+  } catch (error) {
+    new Notice(t('The card could not be moved. Check the destination board and try again.'));
+    return false;
+  }
 }

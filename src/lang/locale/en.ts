@@ -242,6 +242,8 @@ const en = {
   'This card has text that has not been saved.': 'This card has text that has not been saved.',
   'Keep editing': 'Keep editing',
   'Discard draft': 'Discard draft',
+  'The note could not be created or opened. Check the note folder and template.':
+    'The note could not be created or opened. Check the note folder and template.',
   'Auto-create note on card add': 'Auto-create note on card add',
   'When enabled, adding a card will automatically create a linked note (BOARD-ID format) instead of a plain text card.':
     'When enabled, adding a card will automatically create a linked note (BOARD-ID format) instead of a plain text card.',
@@ -272,6 +274,8 @@ const en = {
   'The note could not be created. Try reducing the length of the text before creating a note.':
     'The note could not be created. Try reducing the length of the text before creating a note.',
   'Move card': 'Move card',
+  'The card could not be moved. Check the destination board and try again.':
+    'The card could not be moved. Check the destination board and try again.',
   'Complete card': 'Complete card',
   'Uncheck card': 'Uncheck card',
   'Toggle checkbox': 'Toggle checkbox',

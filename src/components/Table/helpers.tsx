@@ -413,5 +413,9 @@ export function useTableColumns(boardData: Board, stateManager: StateManager) {
     return columns;
   }, [withInlineMetadata, ...fileMetadata, ...metadataLabels.values()]);
 
-  return { data: items, columns: withFileMetadata, state, setSorting };
+  const filteredItems = useMemo(
+    () => (search?.isFiltering ? items.filter((row) => search.items.has(row.item)) : items),
+    [items, search?.isFiltering, search?.items]
+  );
+  return { data: filteredItems, columns: withFileMetadata, state, setSorting };
 }

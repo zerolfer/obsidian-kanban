@@ -1,3 +1,6 @@
+// Obsidian exposes the active application to plugins at runtime.
+declare const app: import('obsidian').App;
+
 type HTMLAttributes<T extends EventTarget> = import('preact/compat').HTMLAttributes<T> &
   AriaAttributes;
 
