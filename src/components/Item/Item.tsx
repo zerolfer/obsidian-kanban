@@ -232,12 +232,12 @@ export const Items = memo(function Items({
 
   // Inserters are opt-in (setting), and skipped in static/search views (indices
   // would be unreliable while filtered, and drag isn't active there anyway).
-  const showInserters = !!insertButtonEnabled && !isStatic && !search?.query;
+  const showInserters = !!insertButtonEnabled && !isStatic && !search?.query && !search?.isFiltering;
 
   return (
     <>
       {items.map((item, i) => {
-        if (search?.query && !search.items.has(item)) return null;
+        if ((search?.query || search?.isFiltering) && !search.items.has(item)) return null;
         return [
           showInserters && (
             <ItemInserter key={`inserter-${item.id}`} laneIndex={laneIndex} insertIndex={i} />
