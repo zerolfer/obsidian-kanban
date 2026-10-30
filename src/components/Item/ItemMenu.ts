@@ -102,15 +102,17 @@ export function useItemMenu({
 
               await applyTemplate(stateManager, newNoteTemplatePath as string | undefined);
 
-              const matchTarget = prevTitle
-                .replace(noteDateRegEx, '$1')
-                .replace(noteTimeRegEx, '$1')
-                .trim()
-                .replace(condenceWhiteSpaceRE, ' ') || prevTitle;
+              const dateAndTime = (
+                prevTitle.match(new RegExp(`${noteDateRegEx.source}|${noteTimeRegEx.source}`, 'g')) || []
+              ).map((match) => match.trim());
 
               const newTitleRaw = item.data.titleRaw.replace(
-                matchTarget,
-                stateManager.app.fileManager.generateMarkdownLink(newFile, stateManager.file.path)
+                prevTitle,
+                () =>
+                  [
+                    stateManager.app.fileManager.generateMarkdownLink(newFile, stateManager.file.path),
+                    ...dateAndTime,
+                  ].join(' ')
               );
 
               boardModifiers.updateItem(path, stateManager.updateItemContent(item, newTitleRaw));
