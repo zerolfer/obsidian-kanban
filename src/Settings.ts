@@ -493,7 +493,7 @@ export class SettingsManager {
             } else if (globalValue !== undefined) {
               toggle.setValue(globalValue as boolean);
             } else {
-              toggle.setValue(false);
+              toggle.setValue(true);
             }
 
             toggle.onChange((newValue) => {
@@ -509,7 +509,7 @@ export class SettingsManager {
               .setTooltip(t('Reset to default'))
               .onClick(() => {
                 const [, globalValue] = this.getSetting('clean-tags-in-new-note-title', local);
-                toggleComponent.setValue((globalValue as boolean | undefined) ?? false);
+                toggleComponent.setValue((globalValue as boolean | undefined) ?? true);
 
                 this.applySettingsUpdate({
                   $unset: ['clean-tags-in-new-note-title'],

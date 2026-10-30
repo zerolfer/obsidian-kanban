@@ -188,7 +188,7 @@ export function useItemMenu({
                 trailingTags,
               } = getNewNoteTitleFromCard(
                 titleWithoutDateAndTime,
-                !!stateManager.getSetting('clean-tags-in-new-note-title'),
+                stateManager.getSetting('clean-tags-in-new-note-title') ?? true,
                 stateManager,
                 item.data.titleRaw.split('\n').slice(1).join('\n')
               );
