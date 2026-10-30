@@ -75,7 +75,7 @@ function getExtensions(stateManager: StateManager) {
   ];
 }
 
-function getMdastExtensions(stateManager: StateManager) {
+function getMdastExtensions(stateManager: StateManager, resolveLinks = true) {
   return [
     gfmTaskListItemFromMarkdown,
     genericWrappedFromMarkdown('date', (text, node) => {
@@ -91,7 +91,7 @@ function getMdastExtensions(stateManager: StateManager) {
       node.time = text;
     }),
     genericWrappedFromMarkdown('embedWikilink', (text, node) => {
-      if (!text) return;
+      if (!text || !resolveLinks) return;
 
       const normalizedPath = getNormalizedPath(text);
 
@@ -107,7 +107,7 @@ function getMdastExtensions(stateManager: StateManager) {
       } as FileAccessor;
     }),
     genericWrappedFromMarkdown('wikilink', (text, node) => {
-      if (!text) return;
+      if (!text || !resolveLinks) return;
 
       const normalizedPath = getNormalizedPath(text);
 
@@ -129,7 +129,7 @@ function getMdastExtensions(stateManager: StateManager) {
       }
     }),
     internalMarkdownLinks((node, isEmbed) => {
-      if (!node.url || /:\/\//.test(node.url) || !/.md$/.test(node.url)) {
+      if (!resolveLinks || !node.url || /:\/\//.test(node.url) || !/.md$/.test(node.url)) {
         return;
       }
 
@@ -194,9 +194,9 @@ export function parseMarkdown(stateManager: StateManager, md: string) {
   };
 }
 
-export function parseFragment(stateManager: StateManager, md: string) {
+export function parseFragment(stateManager: StateManager, md: string, resolveLinks = true) {
   return fromMarkdown(md, {
     extensions: getExtensions(stateManager),
-    mdastExtensions: getMdastExtensions(stateManager),
+    mdastExtensions: getMdastExtensions(stateManager, resolveLinks),
   });
 }

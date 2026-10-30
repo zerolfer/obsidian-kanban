@@ -1,9 +1,11 @@
 import update from 'immutability-helper';
+import { toString } from 'mdast-util-to-string';
 import { Menu, Platform, TFile, TFolder } from 'obsidian';
 import { Dispatch, StateUpdater, useCallback } from 'preact/hooks';
 import { StateManager } from 'src/StateManager';
 import { Path } from 'src/dnd/types';
 import { moveEntity } from 'src/dnd/util/data';
+import { getNormalizedPath } from 'src/helpers/renderMarkdown';
 import { t } from 'src/lang/helpers';
 import { ValueNode } from 'src/parsers/extensions/types';
 import { parseFragment } from 'src/parsers/parseMarkdown';
@@ -20,9 +22,6 @@ import {
 } from './helpers';
 
 const illegalCharsRegEx = /[\\/:"*?<>|]+/g;
-const embedRegEx = /!?\[\[([^\]]*)\.[^\]]+\]\]/g;
-const wikilinkRegEx = /!?\[\[([^\]]*)\]\]/g;
-const mdLinkRegEx = /!?\[([^\]]*)\]\([^)]*\)/g;
 const tagRegEx = /#([^\u2000-\u206F\u2E00-\u2E7F'!"#$%&()*+,.:;<=>?@^`{|}~[\]\\\s\n\r]+)/g;
 const condenceWhiteSpaceRE = /\s+/g;
 
@@ -38,10 +37,26 @@ function sanitizeNoteTitle(title: string) {
   return title.replace(illegalCharsRegEx, ' ').trim().replace(condenceWhiteSpaceRE, ' ');
 }
 
-function getNewNoteTitleFromCard(title: string, cleanTags: boolean, stateManager: StateManager) {
+function getNewNoteTitleFromCard(
+  title: string,
+  cleanTags: boolean,
+  stateManager: StateManager,
+  remainingLines: string
+) {
   const tags: Array<{ start: number; end: number; value: string }> = [];
+  const content = `${title}\n${remainingLines}`;
+  const ast = parseFragment(stateManager, content, false);
+  const definitions: string[] = [];
 
-  visit(parseFragment(stateManager, title), (node) => {
+  visit(ast, (node) => {
+    if (node.type === 'definition') {
+      definitions.push(content.slice(node.position.start.offset, node.position.end.offset));
+      return SKIP;
+    }
+  });
+
+  visit(ast, (node) => {
+    if (node.position?.start.line > 1) return SKIP;
     const type = (node as ValueNode).type;
     if (
       [
@@ -95,14 +110,25 @@ function getNewNoteTitleFromCard(title: string, cleanTags: boolean, stateManager
   }
   noteTitle += title.slice(cursor);
 
-  const normalizeTitle = (value: string) =>
-    sanitizeNoteTitle(
-      value
-        .replace(embedRegEx, '$1')
-        .replace(wikilinkRegEx, '$1')
-        .replace(mdLinkRegEx, '$1')
-        .replace(tagRegEx, '$1')
-    );
+  const normalizeTitle = (value: string) => {
+    if (!value.trim()) return '';
+    const node = parseFragment(stateManager, `${value}\n\n${definitions.join('\n')}`, false)
+      .children[0];
+    if (!node) return '';
+
+    visit(node, ['wikilink', 'embedWikilink'], (node) => {
+      const link = node as ValueNode;
+      const path = getNormalizedPath(link.value);
+      link.value =
+        path.alias ||
+        (/\.[^/.]+$/.test(path.root)
+          ? path.root.replace(/\.[^/.]+$/, '')
+          : `${path.root}${path.subpath}`);
+      return SKIP;
+    });
+
+    return sanitizeNoteTitle(toString(node, { includeHtml: false }).replace(tagRegEx, '$1'));
+  };
 
   return {
     title: normalizeTitle(noteTitle) || normalizeTitle(title),
@@ -163,7 +189,8 @@ export function useItemMenu({
               } = getNewNoteTitleFromCard(
                 titleWithoutDateAndTime,
                 !!stateManager.getSetting('clean-tags-in-new-note-title'),
-                stateManager
+                stateManager,
+                item.data.titleRaw.split('\n').slice(1).join('\n')
               );
 
               const newNoteFolder = stateManager.getSetting('new-note-folder');
