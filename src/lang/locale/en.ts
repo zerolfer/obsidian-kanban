@@ -216,6 +216,8 @@ const en = {
 
   // components/Item/ItemForm.tsx
   'Card title...': 'Card title...',
+  'Card draft storage is unavailable. Drafts are kept only for this session.':
+    'Card draft storage is unavailable. Drafts are kept only for this session.',
   'Add card': 'Add card',
   'Add a card': 'Add a card',
 

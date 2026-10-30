@@ -1,6 +1,7 @@
 import { around } from 'monkey-around';
 import {
   MarkdownView,
+  Notice,
   Platform,
   Plugin,
   TFile,
@@ -18,6 +19,7 @@ import { StateManager } from './StateManager';
 import { DateSuggest, TimeSuggest } from './components/Editor/suggest';
 import { getParentWindow } from './dnd/util/getWindow';
 import { hasFrontmatterKey } from './helpers';
+import { CardDraftStore, createCardDraftStorage } from './helpers/cardDrafts';
 import { t } from './lang/helpers';
 import { basicFrontmatter, frontmatterKey } from './parsers/common';
 
@@ -48,6 +50,7 @@ function getEditorClass(app: any) {
 export default class KanbanPlugin extends Plugin {
   settingsTab: KanbanSettingsTab;
   settings: KanbanSettings = {};
+  cardDrafts: CardDraftStore;
 
   // leafid => view mode
   kanbanFileModes: Record<string, string> = {};
@@ -97,6 +100,20 @@ export default class KanbanPlugin extends Plugin {
 
   async onload() {
     await this.loadSettings();
+
+    this.cardDrafts = new CardDraftStore(createCardDraftStorage(this.app), () => {
+      new Notice(t('Card draft storage is unavailable. Drafts are kept only for this session.'));
+    });
+    this.registerEvent(
+      this.app.vault.on('rename', (file, oldPath) => {
+        this.cardDrafts.rename(oldPath, file.path);
+      })
+    );
+    this.registerEvent(
+      this.app.vault.on('delete', (file) => {
+        this.cardDrafts.remove(file.path);
+      })
+    );
 
     this.MarkdownEditor = getEditorClass(this.app);
 
