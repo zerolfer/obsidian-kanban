@@ -5,6 +5,9 @@ import { StateManager } from 'src/StateManager';
 import { Path } from 'src/dnd/types';
 import { moveEntity } from 'src/dnd/util/data';
 import { t } from 'src/lang/helpers';
+import { ValueNode } from 'src/parsers/extensions/types';
+import { parseFragment } from 'src/parsers/parseMarkdown';
+import { SKIP, visit } from 'unist-util-visit';
 
 import { BoardModifiers } from '../../helpers/boardModifiers';
 import { applyTemplate, escapeRegExpStr, generateInstanceId } from '../helpers';
@@ -21,8 +24,6 @@ const embedRegEx = /!?\[\[([^\]]*)\.[^\]]+\]\]/g;
 const wikilinkRegEx = /!?\[\[([^\]]*)\]\]/g;
 const mdLinkRegEx = /!?\[([^\]]*)\]\([^)]*\)/g;
 const tagRegEx = /#([^\u2000-\u206F\u2E00-\u2E7F'!"#$%&()*+,.:;<=>?@^`{|}~[\]\\\s\n\r]+)/g;
-const leadingTagsRegEx = new RegExp(`^(?:\\s*${tagRegEx.source})+\\s*`);
-const trailingTagsRegEx = new RegExp(`\\s*(?:${tagRegEx.source}\\s*)+$`);
 const condenceWhiteSpaceRE = /\s+/g;
 
 interface UseItemMenuParams {
@@ -37,43 +38,76 @@ function sanitizeNoteTitle(title: string) {
   return title.replace(illegalCharsRegEx, ' ').trim().replace(condenceWhiteSpaceRE, ' ');
 }
 
-function getUniqueTags(title: string) {
-  const tags: string[] = [];
+function getNewNoteTitleFromCard(title: string, cleanTags: boolean, stateManager: StateManager) {
+  const tags: Array<{ start: number; end: number; value: string }> = [];
 
-  title.replace(tagRegEx, (tag) => {
-    if (!tags.includes(tag)) {
-      tags.push(tag);
+  visit(parseFragment(stateManager, title), (node) => {
+    const type = (node as ValueNode).type;
+    if (
+      [
+        'link',
+        'linkReference',
+        'image',
+        'imageReference',
+        'wikilink',
+        'embedWikilink',
+        'embedLink',
+        'inlineCode',
+        'code',
+        'html',
+      ].includes(type)
+    ) {
+      return SKIP;
     }
 
-    return tag;
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    if (type === 'hashtag' && start !== undefined && end !== undefined) {
+      tags.push({ start, end, value: title.slice(start, end) });
+    }
   });
 
-  return tags;
-}
-
-function getNewNoteTitleFromCard(title: string, cleanTags: boolean) {
-  const normalizedTitle = title
-    .replace(embedRegEx, '$1')
-    .replace(wikilinkRegEx, '$1')
-    .replace(mdLinkRegEx, '$1');
-
-  if (!cleanTags) {
-    return {
-      title: sanitizeNoteTitle(normalizedTitle.replace(tagRegEx, '$1')),
-      tags: '',
-    };
+  const leadingTags: string[] = [];
+  const trailingTags: string[] = [];
+  let leadingEnd = 0;
+  let isLeading = true;
+  let trailingStart = title.length;
+  for (let i = tags.length - 1; i >= 0; i--) {
+    if (title.slice(tags[i].end, trailingStart).trim()) break;
+    trailingStart = tags[i].start;
   }
 
-  const tags = getUniqueTags(normalizedTitle);
-  const titleWithoutEdgeTags = normalizedTitle
-    .replace(leadingTagsRegEx, '')
-    .replace(trailingTagsRegEx, '');
-  const titleWithPlainMiddleTags = titleWithoutEdgeTags.replace(tagRegEx, '$1');
-  const fallbackTitle = normalizedTitle.replace(tagRegEx, '$1');
+  let noteTitle = '';
+  let cursor = 0;
+  for (const tag of tags) {
+    if (title.slice(leadingEnd, tag.start).trim()) isLeading = false;
+    if (isLeading) {
+      leadingTags.push(tag.value);
+      leadingEnd = tag.end;
+    } else {
+      trailingTags.push(tag.value);
+    }
+    noteTitle += title.slice(cursor, tag.start);
+    if (!cleanTags || (!isLeading && tag.start < trailingStart)) {
+      noteTitle += tag.value.slice(1);
+    }
+    cursor = tag.end;
+  }
+  noteTitle += title.slice(cursor);
+
+  const normalizeTitle = (value: string) =>
+    sanitizeNoteTitle(
+      value
+        .replace(embedRegEx, '$1')
+        .replace(wikilinkRegEx, '$1')
+        .replace(mdLinkRegEx, '$1')
+        .replace(tagRegEx, '$1')
+    );
 
   return {
-    title: sanitizeNoteTitle(titleWithPlainMiddleTags) || sanitizeNoteTitle(fallbackTitle),
-    tags: tags.join(' '),
+    title: normalizeTitle(noteTitle) || normalizeTitle(title),
+    leadingTags: leadingTags.join(' '),
+    trailingTags: trailingTags.join(' '),
   };
 }
 
@@ -122,9 +156,14 @@ export function useItemMenu({
                 .replace(noteTimeRegEx, '$1')
                 .trim()
                 .replace(condenceWhiteSpaceRE, ' ');
-              const { title: sanitizedTitle, tags } = getNewNoteTitleFromCard(
+              const {
+                title: sanitizedTitle,
+                leadingTags,
+                trailingTags,
+              } = getNewNoteTitleFromCard(
                 titleWithoutDateAndTime,
-                !!stateManager.getSetting('clean-tags-in-new-note-title')
+                !!stateManager.getSetting('clean-tags-in-new-note-title'),
+                stateManager
               );
 
               const newNoteFolder = stateManager.getSetting('new-note-folder');
@@ -148,18 +187,19 @@ export function useItemMenu({
               await applyTemplate(stateManager, newNoteTemplatePath as string | undefined);
 
               const dateAndTime = (
-                prevTitle.match(new RegExp(`${noteDateRegEx.source}|${noteTimeRegEx.source}`, 'g')) || []
+                prevTitle.match(
+                  new RegExp(`${noteDateRegEx.source}|${noteTimeRegEx.source}`, 'g')
+                ) || []
               ).map((match) => match.trim());
 
               const newNoteLink = stateManager.app.fileManager.generateMarkdownLink(
                 newFile,
                 stateManager.file.path
               );
-              const newTitle = [newNoteLink, tags, ...dateAndTime].filter(Boolean).join(' ');
-              const newTitleRaw = item.data.titleRaw.replace(
-                prevTitle,
-                () => newTitle
-              );
+              const newTitle = [leadingTags, newNoteLink, trailingTags, ...dateAndTime]
+                .filter(Boolean)
+                .join(' ');
+              const newTitleRaw = item.data.titleRaw.replace(prevTitle, () => newTitle);
 
               boardModifiers.updateItem(path, stateManager.updateItemContent(item, newTitleRaw));
             });

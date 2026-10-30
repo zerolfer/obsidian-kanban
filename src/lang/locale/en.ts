@@ -67,8 +67,8 @@ const en = {
     'Notes created from Kanban cards will be placed in this folder. If blank, they will be placed in the default location for this vault.',
   'Default folder': 'Default folder',
   'Clean tags from new note titles': 'Clean tags from new note titles',
-  'When creating a note from a card, leading and trailing tags are removed from the note title and card tags are kept after the generated link.':
-    'When creating a note from a card, leading and trailing tags are removed from the note title and card tags are kept after the generated link.',
+  'When creating a note from a card, remove leading and trailing tags from the note title. Keep leading card tags before the generated link and other card tags after it.':
+    'When creating a note from a card, remove leading and trailing tags from the note title. Keep leading card tags before the generated link and other card tags after it.',
   'List width': 'List width',
   'Expand lists to full width in list view': 'Expand lists to full width in list view',
   'Enter a number to set the list width in pixels.':

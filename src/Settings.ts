@@ -476,7 +476,7 @@ export class SettingsManager {
       .setName(t('Clean tags from new note titles'))
       .setDesc(
         t(
-          'When creating a note from a card, leading and trailing tags are removed from the note title and card tags are kept after the generated link.'
+          'When creating a note from a card, remove leading and trailing tags from the note title. Keep leading card tags before the generated link and other card tags after it.'
         )
       )
       .then((setting) => {
